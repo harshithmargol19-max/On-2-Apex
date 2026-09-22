@@ -51,7 +51,7 @@ class Settings(BaseSettings):
             return [str(i).rstrip("/") for i in parsed]
         return []
 
-    # AI Gateway
+    NVIDIA_API_KEY: str | None = None
     OPENAI_KEY: str | None = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 

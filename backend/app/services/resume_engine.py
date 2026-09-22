@@ -64,10 +64,11 @@ class ResumeTailorEngine:
             raise AppException(message="Job not found.", code="NOT_FOUND", status_code=404)
 
         position = (request.custom_position or job.title).strip()
-        candidate_name = user.full_name or (user.student_profile.full_name if user.student_profile else "Candidate")
+        user_prof = getattr(user, "profile", None) or getattr(user, "student_profile", None)
+        candidate_name = user.full_name or (user_prof.full_name if user_prof and hasattr(user_prof, "full_name") else "Candidate")
         email = user.email
-        phone = user.student_profile.phone if user.student_profile and user.student_profile.phone else ""
-        location = user.student_profile.location if user.student_profile and user.student_profile.location else ""
+        phone = user_prof.phone if user_prof and user_prof.phone else ""
+        location = user_prof.location if user_prof and user_prof.location else ""
 
         skills = [s.name for s in user.skills] if user.skills else ["Python", "FastAPI", "SQL", "Git"]
         projects = user.projects or []

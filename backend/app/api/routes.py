@@ -26,3 +26,5 @@ api_router.include_router(workspace_router, prefix="/workspace", tags=["Placemen
 api_router.include_router(google_router, prefix="/google", tags=["Google Integration"])
 api_router.include_router(documents_router, prefix="/documents", tags=["Document Intelligence"])
 api_router.include_router(llm_router, prefix="/settings/llm", tags=["BYOK LLM Gateway"])
+api_router.include_router(llm_router, prefix="/llm", tags=["BYOK LLM Gateway"])
+

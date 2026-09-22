@@ -32,13 +32,16 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    # User Profile relationship (1-to-1)
     profile: Mapped["StudentProfile"] = relationship(
         "StudentProfile",
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
     )
+
+    @property
+    def student_profile(self):
+        return self.profile
 
     # Sub-entities (1-to-many)
     skills: Mapped[List["Skill"]] = relationship(

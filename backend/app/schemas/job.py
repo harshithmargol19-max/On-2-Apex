@@ -9,6 +9,9 @@ class JobSearchQuery(BaseModel):
     keywords: List[str] = Field(default_factory=list)
     experience: Optional[str] = Field(default=None, max_length=50)
     limit: int = Field(default=15, ge=1, le=50)
+    sources: Optional[List[str]] = Field(default=None)
+    country: Optional[str] = Field(default=None, max_length=50)
+    is_remote: bool = Field(default=False)
 
 
 class JobOut(BaseModel):

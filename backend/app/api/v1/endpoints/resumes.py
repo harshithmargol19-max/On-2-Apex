@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
@@ -8,11 +8,14 @@ from app.models.user import User
 from app.schemas.resume import (
     GeneratedResumeBrief,
     GeneratedResumeOut,
+    ResumeAnalysisOut,
     ResumeApplyRequest,
     ResumeGenerateRequest,
     ResumeUpdateRequest,
 )
 from app.services.resume_engine import resume_engine
+from app.services.resume_analyzer import resume_analyzer
+from app.services.pdf_compiler import pdf_compiler
 
 router = APIRouter()
 
@@ -43,6 +46,39 @@ def list_resumes(
         tag=tag,
         position=position,
     )
+
+
+@router.post("/analyze-upload", response_model=ResumeAnalysisOut)
+def analyze_uploaded_resume(
+    file: UploadFile = File(...),
+    target_position: Optional[str] = Form(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return resume_analyzer.analyze_uploaded_file(
+        file=file,
+        user=current_user,
+        db=db,
+        target_position=target_position,
+    )
+
+
+@router.post("/{resume_id}/analyze", response_model=ResumeAnalysisOut)
+def analyze_existing_resume(
+    resume_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return resume_analyzer.analyze_existing_resume(
+        resume_id=resume_id,
+        user=current_user,
+        db=db,
+    )
+
+
+@router.get("/pdf-status")
+def get_pdf_status():
+    return pdf_compiler.get_compiler_info()
 
 
 @router.get("/{resume_id}", response_model=GeneratedResumeOut)
@@ -127,3 +163,31 @@ def get_resume_latex(
         resume_id=resume_id,
     )
     return PlainTextResponse(content=resume.latex, media_type="text/x-tex")
+
+
+@router.get("/{resume_id}/pdf")
+def get_resume_pdf(
+    resume_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    resume = resume_engine.get_resume_by_id(
+        db=db,
+        user=current_user,
+        resume_id=resume_id,
+    )
+    pdf_bytes = pdf_compiler.compile_latex_to_pdf(
+        latex_source=resume.latex,
+        job_name=f"resume_{resume.id}",
+    )
+    clean_pos = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in resume.position.lower())
+    filename = f"{clean_pos}_resume.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Content-Type": "application/pdf",
+        },
+    )
+

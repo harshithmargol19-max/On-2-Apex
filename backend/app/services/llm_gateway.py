@@ -29,9 +29,16 @@ class LLMGateway:
     def _resolve_url(self, provider: str, custom_base_url: Optional[str] = None) -> str:
         if custom_base_url and custom_base_url.strip():
             url = custom_base_url.strip().rstrip("/")
-            if not url.endswith("/chat/completions"):
-                url = f"{url}/chat/completions"
-            return url
+            mismatched = (
+                ("openrouter.ai" in url and provider != "openrouter")
+                or ("api.groq.com" in url and provider != "groq")
+                or ("integrate.api.nvidia.com" in url and provider != "nvidia_nim")
+                or ("googleapis.com" in url and provider != "gemini")
+            )
+            if not mismatched:
+                if not url.endswith("/chat/completions"):
+                    url = f"{url}/chat/completions"
+                return url
         if provider == "ollama" and settings.OLLAMA_BASE_URL:
             base = settings.OLLAMA_BASE_URL.strip().rstrip("/")
             if not base.endswith("/chat/completions"):
@@ -40,11 +47,17 @@ class LLMGateway:
         return PROVIDER_ENDPOINTS.get(provider, PROVIDER_ENDPOINTS["openrouter"])
 
     def _resolve_headers(self, provider: str, api_key: Optional[str]) -> Dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        key = api_key.strip() if api_key else ""
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "AI-Placement-Coach/1.0",
+        }
+        key = (api_key or "").strip().strip("'\"")
+        if key.lower().startswith("bearer "):
+            key = key[7:].strip()
         if provider == "openrouter":
             headers["Authorization"] = f"Bearer {key}"
-            headers["HTTP-Referer"] = "http://localhost:8000"
+            headers["HTTP-Referer"] = "http://localhost:3000"
             headers["X-Title"] = "AI Placement Coach"
         elif provider == "ollama":
             headers["Authorization"] = f"Bearer {key or 'ollama'}"
@@ -60,25 +73,52 @@ class LLMGateway:
         base_url: Optional[str],
         messages: List[Dict[str, str]],
         json_mode: bool = False,
+        max_tokens: Optional[int] = None,
         timeout: float = 45.0,
     ) -> str:
         endpoint = self._resolve_url(provider, base_url)
+        if provider != "ollama" and not (api_key and api_key.strip()):
+            raise RuntimeError(
+                f"[{provider}] Missing API Key. Please provide an API key for {provider} in Settings."
+            )
         headers = self._resolve_headers(provider, api_key)
+
+        formatted_messages = list(messages)
+        token_limit = max_tokens if max_tokens is not None else 4096
 
         payload: Dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": formatted_messages,
             "temperature": 0.2,
+            "max_tokens": token_limit,
+            "stream": False,
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
+            has_json = any(
+                "json" in m.get("content", "").lower() for m in formatted_messages
+            )
+            if not has_json and formatted_messages:
+                last_msg = dict(formatted_messages[-1])
+                last_msg["content"] = f"{last_msg['content']}\n\nRespond with valid JSON format."
+                formatted_messages[-1] = last_msg
+                payload["messages"] = formatted_messages
 
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(endpoint, headers=headers, json=payload)
             if resp.status_code != 200:
-                raise RuntimeError(
-                    f"[{provider}] API error {resp.status_code}: {resp.text[:200]}"
-                )
+                err_detail = resp.text[:300]
+                try:
+                    err_json = resp.json()
+                    err_detail = (
+                        err_json.get("detail")
+                        or (err_json.get("error", {}).get("message") if isinstance(err_json.get("error"), dict) else err_json.get("error"))
+                        or err_json.get("message")
+                        or err_detail
+                    )
+                except Exception:
+                    pass
+                raise RuntimeError(f"[{provider}] API error {resp.status_code}: {err_detail}")
             data = resp.json()
             choices = data.get("choices", [])
             if not choices:
@@ -105,6 +145,7 @@ class LLMGateway:
                 base_url=base_url,
                 messages=messages,
                 json_mode=False,
+                max_tokens=64,
                 timeout=15.0,
             )
             duration_ms = (time.perf_counter() - start) * 1000
@@ -130,19 +171,16 @@ class LLMGateway:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # Resolve primary
-        primary_provider = config.primary_provider if config else "openrouter"
-        primary_model = config.primary_model if config else "meta-llama/llama-3.3-70b-instruct"
-        primary_key = (config.primary_api_key if config and config.primary_api_key else settings.OPENAI_KEY) or ""
+        primary_provider = config.primary_provider if config and config.primary_provider else "nvidia_nim"
+        primary_model = config.primary_model if config and config.primary_model else "meta/llama-3.1-8b-instruct"
+        primary_key = (config.primary_api_key if config and config.primary_api_key else "") or ""
         primary_url = config.primary_base_url if config else None
 
-        # Resolve backup
         backup_provider = config.backup_provider if config else None
         backup_model = config.backup_model if config else None
         backup_key = config.backup_api_key if config else None
         backup_url = config.backup_base_url if config else None
 
-        # 1. Try Primary
         try:
             logger.info(f"Attempting LLM generation via Primary Provider [{primary_provider}] model [{primary_model}]")
             return self.call_provider(
@@ -158,7 +196,6 @@ class LLMGateway:
                 f"Primary LLM provider [{primary_provider}] failed: {primary_err}. Checking backup provider..."
             )
 
-        # 2. Try Backup if configured
         if backup_provider and backup_model:
             try:
                 logger.info(

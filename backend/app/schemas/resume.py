@@ -60,3 +60,18 @@ class GeneratedResumeBrief(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ResumeAnalysisOut(BaseModel):
+    interview_readiness_score: int = Field(..., ge=0, le=100)
+    short_description: str
+    technical_depth_score: int = Field(..., ge=0, le=100)
+    impact_score: int = Field(..., ge=0, le=100)
+    ats_score: int = Field(..., ge=0, le=100)
+    strengths: List[str] = []
+    improvements: List[str] = []
+    interview_topics: List[str] = []
+    extracted_markdown: Optional[str] = None
+    candidate_name: Optional[str] = None
+    analyzed_at: datetime
+

@@ -6,8 +6,8 @@ ProviderType = Literal["nvidia_nim", "groq", "ollama", "openrouter", "gemini"]
 
 
 class LLMConfigUpdate(BaseModel):
-    primary_provider: ProviderType = Field(default="openrouter")
-    primary_model: str = Field(..., min_length=1, max_length=100)
+    primary_provider: ProviderType = Field(default="nvidia_nim")
+    primary_model: str = Field(default="meta/llama-3.1-8b-instruct", min_length=1, max_length=100)
     primary_api_key: Optional[str] = Field(default=None, max_length=500)
     primary_base_url: Optional[str] = Field(default=None, max_length=500)
 

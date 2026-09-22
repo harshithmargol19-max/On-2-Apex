@@ -34,6 +34,7 @@ def list_jobs(
     location: Optional[str] = None,
     company: Optional[str] = None,
     search: Optional[str] = None,
+    source: Optional[str] = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -47,6 +48,8 @@ def list_jobs(
         query = query.filter(Job.location.ilike(f"%{location.strip()}%"))
     if company:
         query = query.filter(Job.normalized_company.ilike(f"%{company.strip()}%"))
+    if source and source.strip().lower() != "all":
+        query = query.filter(Job.source.ilike(f"%{source.strip()}%"))
     if search:
         term = f"%{search.strip()}%"
         query = query.filter(

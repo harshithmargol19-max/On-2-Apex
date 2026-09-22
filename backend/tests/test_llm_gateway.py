@@ -5,7 +5,8 @@ from app.services.llm_gateway import PROVIDER_ENDPOINTS, llm_gateway, mask_api_k
 
 @pytest.fixture
 def auth_header_llm(client):
-    email = "llmuser@example.com"
+    import uuid
+    email = f"llm_{uuid.uuid4().hex[:8]}@example.com"
     client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": "Password123!", "full_name": "LLM User"},
@@ -38,7 +39,7 @@ def test_get_and_update_llm_settings(client, auth_header_llm):
     get_resp = client.get("/api/v1/settings/llm", headers=auth_header_llm)
     assert get_resp.status_code == 200
     data = get_resp.json()
-    assert data["primary_provider"] == "openrouter"
+    assert data["primary_provider"] == "nvidia_nim"
 
     update_payload = {
         "primary_provider": "groq",
@@ -91,3 +92,37 @@ def test_llm_gateway_primary_and_failover():
         )
         assert result == "Backup response content"
         assert mock_call.call_count == 2
+
+
+def test_resolve_url_mismatched_domain_fallback():
+    url = llm_gateway._resolve_url("groq", "https://openrouter.ai/api/v1")
+    assert url == PROVIDER_ENDPOINTS["groq"]
+
+    url_nvidia = llm_gateway._resolve_url("nvidia_nim", "https://openrouter.ai/api/v1")
+    assert url_nvidia == PROVIDER_ENDPOINTS["nvidia_nim"]
+
+
+def test_test_provider_key_isolation(client, auth_header_llm):
+    put_resp = client.put(
+        "/api/v1/settings/llm",
+        json={
+            "primary_provider": "openrouter",
+            "primary_model": "meta-llama/llama-3.3-70b-instruct",
+            "primary_api_key": "sk-or-v1-secretkey987654321",
+        },
+        headers=auth_header_llm,
+    )
+    assert put_resp.status_code == 200
+
+    test_resp = client.post(
+        "/api/v1/settings/llm/test",
+        json={
+            "provider": "groq",
+            "model": "llama-3.3-70b-versatile",
+        },
+        headers=auth_header_llm,
+    )
+    assert test_resp.status_code == 200
+    data = test_resp.json()
+    assert data["success"] is False
+    assert "No API key provided for groq" in data["error"]
